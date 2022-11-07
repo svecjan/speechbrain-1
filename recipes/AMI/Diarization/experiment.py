@@ -20,6 +20,7 @@ Authors
 
 import os
 import sys
+import time
 import torch
 import logging
 import pickle
@@ -62,12 +63,12 @@ except ImportError:
 def compute_embeddings(wavs, lens):
     """Definition of the steps for computation of embeddings from the waveforms."""
     with torch.no_grad():
-        wavs = wavs.to(params["device"])
+        wavs = wavs.to(run_opts["device"])
         feats = params["compute_features"](wavs)
         feats = params["mean_var_norm"](feats, lens)
         emb = params["embedding_model"](feats, lens)
         emb = params["mean_var_norm_emb"](
-            emb, torch.ones(emb.shape[0], device=params["device"])
+            emb, torch.ones(emb.shape[0], device=run_opts["device"])
         )
 
     return emb
@@ -236,15 +237,17 @@ def diarize_dataset(full_meta, split_type, n_lambdas, pval, n_neighbors=10):
         diary_set_loader = dataio_prep(params, meta_per_rec_file)
 
         # Putting modules on the device.
-        params["compute_features"].to(params["device"])
-        params["mean_var_norm"].to(params["device"])
-        params["embedding_model"].to(params["device"])
-        params["mean_var_norm_emb"].to(params["device"])
+        params["compute_features"].to(run_opts["device"])
+        params["mean_var_norm"].to(run_opts["device"])
+        params["embedding_model"].to(run_opts["device"])
+        params["mean_var_norm_emb"].to(run_opts["device"])
 
         # Compute Embeddings.
+        start = time.time()
         diary_obj = embedding_computation_loop(
             "diary", diary_set_loader, diary_stat_emb_file
         )
+        print("embedding_computation_loop", time.time() - start)
 
         # Adding tag for directory path.
         type_of_num_spkr = "oracle" if params["oracle_n_spkrs"] else "est"
@@ -552,9 +555,9 @@ if __name__ == "__main__":  # noqa: C901
     # We download the pretrained Model from HuggingFace (or elsewhere depending on
     # the path given in the YAML file).
     run_on_main(params["pretrainer"].collect_files)
-    params["pretrainer"].load_collected(device=(params["device"]))
+    params["pretrainer"].load_collected(device=(run_opts["device"]))
     params["embedding_model"].eval()
-    params["embedding_model"].to(params["device"])
+    params["embedding_model"].to(run_opts["device"])
 
     # AMI Dev Set: Tune hyperparams on dev set.
     # Read the meta-data file for dev set generated during data_prep

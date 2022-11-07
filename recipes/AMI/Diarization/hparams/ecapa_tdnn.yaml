@@ -17,7 +17,6 @@ manual_annot_folder: !PLACEHOLDER # e.g., /path/to/ami_public_manual_1.6.2/
 
 output_folder: results/ami/ecapa/
 save_folder: !ref <output_folder>/save
-device: 'cuda:0'
 
 # Embedding model
 # Here, the pretrained embedding model trained with train_speaker_embeddings.py hparams/train_ecapa_tdnn.yaml
