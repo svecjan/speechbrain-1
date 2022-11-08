@@ -147,6 +147,7 @@ def get_AMI_split(split_option):
             "EN2002",
         ]
 
+    # TODO: IB4005 missing, why?
     if split_option == "full_corpus_asr":
         train_set = [
             "ES2002",

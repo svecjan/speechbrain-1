@@ -243,11 +243,9 @@ def diarize_dataset(full_meta, split_type, n_lambdas, pval, n_neighbors=10):
         params["mean_var_norm_emb"].to(run_opts["device"])
 
         # Compute Embeddings.
-        start = time.time()
         diary_obj = embedding_computation_loop(
             "diary", diary_set_loader, diary_stat_emb_file
         )
-        print("embedding_computation_loop", time.time() - start)
 
         # Adding tag for directory path.
         type_of_num_spkr = "oracle" if params["oracle_n_spkrs"] else "est"
