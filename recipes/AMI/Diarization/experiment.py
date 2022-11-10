@@ -22,6 +22,7 @@ import os
 import sys
 import time
 import torch
+import torchaudio
 import logging
 import pickle
 import json
@@ -37,6 +38,9 @@ from speechbrain.processing import diarization as diar
 from speechbrain.utils.DER import DER
 from speechbrain.dataio.dataio import read_audio
 from speechbrain.dataio.dataio import read_audio_multichannel
+
+import icecream as ic
+import json
 
 np.random.seed(1234)
 
@@ -503,6 +507,204 @@ def dataio_prep(hparams, json_file):
 
     return dataloader
 
+def join_speech_segments(rttm_file: str):
+    """
+    SPEAKER EN2001a 0 0.0 3.168 <NA> <NA> SILENCE <NA> <NA>
+    """
+    # i = 0
+    # sample_rate = 16000
+
+    # Get durations
+    # bname2file = {}
+    # audio2dur = {}
+    # for f in audio_files:
+    #     bname = os.path.basename(f).split(".")[0]
+    #     bname2file[bname] = f
+    #     audio2dur[bname] = torchaudio.info(f).num_frames / sample_rate
+    result = []
+
+    with open(rttm_file) as fd:
+        act_filename = None
+        act_label = None
+        segment_start = 0.0
+        segment_duration = 0.0
+        for line in fd:
+            _, file_label, _, start, duration, _, _, spk_label, _, _  = line.strip().split()
+            if act_label == None: # start
+                act_label = "overlap" if spk_label == "overlap" else "speech"
+                act_filename = file_label
+                segment_start = float(start)
+                segment_duration = float(duration)
+                continue
+            
+            if file_label == act_filename:
+                label = "overlap" if spk_label == "overlap" else "speech"
+                if label == act_label:
+                    segment_duration += float(duration)
+                else:
+                    # print(f"SPEAKER {act_filename} 0 {segment_start:.2f} {segment_duration:.2f} <NA> <NA> {act_label} <NA> <NA>")
+                    if act_label != "overlap":
+                        result.append(
+                            (
+                                "SPEAKER", 
+                                f"{act_filename}", 
+                                "0", 
+                                f"{segment_start:.2f}", 
+                                f"{segment_duration:.2f}", 
+                                "<NA>",
+                                "<NA>", 
+                                f"{act_label}",
+                                "<NA>", 
+                                "<NA>",
+                            )
+                        )
+                    act_label = label
+                    segment_start = float(start)
+                    segment_duration = float(duration)
+            else:
+                # print(f"SPEAKER {act_filename} 0 {segment_start:.2f} {segment_duration:.2f} <NA> <NA> {act_label} <NA> <NA>")
+                if act_label != "overlap":
+                    result.append(
+                        (
+                            "SPEAKER", 
+                            f"{act_filename}",
+                            "0",
+                            f"{segment_start:.2f}",
+                            f"{segment_duration:.2f}",
+                            "<NA>",
+                            "<NA>",
+                            f"{act_label}",
+                            "<NA>",
+                            "<NA>",
+                        )
+                    )
+                act_filename = file_label
+                act_label = label
+                segment_start = float(start)
+                segment_duration = float(duration)
+        # print(f"SPEAKER {act_filename} 0 {segment_start:.2f} {segment_duration:.2f} <NA> <NA> {act_label} <NA> <NA>")
+        if act_label != "overlap":
+            result.append(
+                (
+                    "SPEAKER", 
+                    f"{act_filename}",
+                    "0",
+                    f"{segment_start:.2f}",
+                    f"{segment_duration:.2f}",
+                    "<NA>",
+                    "<NA>",
+                    f"{act_label}",
+                    "<NA>", 
+                    "<NA>",
+                )
+            )
+                
+    return result
+
+def indexes2ranges(indexes: torch.Tensor, sample_rate = 16000) -> list:
+    nonzero = torch.nonzero(indexes).squeeze(1)
+    sum_nonzero = torch.count_nonzero(nonzero)
+    if sum_nonzero.item() == 80000:
+        return [[0, 5]]
+
+    _result = []
+    for j, vv in enumerate(nonzero):
+        if j == 0:
+            start = vv.clone().detach()
+            progress = vv.clone().detach()
+            continue
+        progress += 1
+
+        if vv == progress:
+            continue
+        else:
+            _result.append([start.item()/sample_rate, (progress.item())/sample_rate])
+            start = vv.clone().detach()
+            progress = vv.clone().detach()
+    
+    if nonzero.shape[0] != 0:
+        _result.append([start.item()/sample_rate, (progress.item())/sample_rate])
+
+    return _result
+
+
+
+def generate_json(rttm_file_lst: list, audio_files: str, output_json: str, sample_rate = 16000, segment_len=5):
+    """
+    "EN2001a_3.168_3.968": {
+        "wav": {
+            "file": "/Users/svec/Downloads/AMI/amicorpus/EN2001a/audio/EN2001a.Mix-Headset.wav",
+            "duration": 0.8,
+            "start": 50688,
+            "stop": 63488
+        }
+    }
+
+    "example_1": {
+        "wav": {
+            "file": "/Users/svec/Downloads/VAD_data/LibriParty/dataset/train/session_0/session_0_mixture.wav",
+            "start": 0,
+            "stop": 80000
+        },
+        "speech": [
+            [
+                0.5820177896629856,
+                5
+            ]
+        ]
+    }
+
+    start:
+      start_time = 0
+      end_time = 80000
+      Read rttm line
+
+    """
+
+    bname2file = {}
+    audio2dur = {}
+    for f in audio_files:
+        bname = os.path.basename(f).split(".")[0]
+        bname2file[bname] = f
+        audio2dur[bname] = torchaudio.info(f).num_frames
+    
+    bname2mask = {}
+    for sline in rttm_file_lst:
+        _, file_label, _, start, duration, _, _, spk_label, _, _ = sline
+
+        if not file_label in bname2mask:
+            bname2mask[file_label] = torch.zeros(audio2dur[bname])
+        
+        start_i = int(float(start) * sample_rate)
+        end_i = int((float(start) + float(duration)) * sample_rate)
+        bname2mask[file_label][start_i: end_i] = 1 
+    
+
+    obj_out = {}
+    i = 0
+    for k, v in bname2mask.items():
+        start = 0
+        stop = sample_rate * segment_len
+        step = sample_rate * segment_len
+        while True:
+            # print(k, start, stop, v.shape)
+            range_lst = indexes2ranges(v[start:stop+1])
+            if range_lst:
+                obj = {"wav": {"file": bname2file[k], "start": start, "stop": stop}, "speech": range_lst}
+                obj_out[f"example_{i}"] = obj
+                i += 1
+
+            start += step
+            stop += step
+            if stop > v.shape[0]:
+                break
+
+    with open(output_json, "w", encoding="utf-8") as fd:
+        json.dump(obj_out, fd, ensure_ascii=False, indent=4)
+
+    return obj_out
+
+        
 
 # Begin experiment!
 if __name__ == "__main__":  # noqa: C901
@@ -532,6 +734,36 @@ if __name__ == "__main__":  # noqa: C901
             "overlap": params["overlap"],
         },
     )
+
+    # print(f"""
+    # == prepare_ami ==
+    # "data_folder": {params["data_folder"]},
+    # "save_folder": {params["save_folder"]},
+    # "ref_rttm_dir": {params["ref_rttm_dir"]},
+    # "meta_data_dir": {params["meta_data_dir"]},
+    # "manual_annot_folder": {params["manual_annot_folder"]},
+    # "split_type": {params["split_type"]},
+    # "skip_TNO": {params["skip_TNO"]},
+    # "mic_type": {params["mic_type"]},
+    # "vad_type": {params["vad_type"]},
+    # "max_subseg_dur": {params["max_subseg_dur"]},
+    # "overlap": {params["overlap"]}
+    # """)
+
+    rttm_train_file = os.path.join(params["meta_data_dir"], "ami_train.segments.rttm")
+    rttm_dev_file = os.path.join(params["meta_data_dir"], "ami_dev.segments.rttm")
+    rttm_eval_file = os.path.join(params["meta_data_dir"], "ami_eval.segments.rttm")
+    lst = glob.glob(os.path.join(params["data_folder"], "*", "audio", "*.Mix-Headset.wav"))
+    
+    joined_train_rttm = join_speech_segments(rttm_train_file)
+    joined_dev_rttm = join_speech_segments(rttm_dev_file)
+    joined_eval_rttm = join_speech_segments(rttm_eval_file)
+
+    generate_json(joined_train_rttm, lst, "train.json")
+    generate_json(joined_dev_rttm, lst, "dev.json")
+    generate_json(joined_eval_rttm, lst, "eval.json")
+    
+    sys.exit(0)
 
     # Create experiment directory.
     sb.core.create_experiment_directory(
@@ -563,10 +795,13 @@ if __name__ == "__main__":  # noqa: C901
         params["meta_data_dir"],
         "ami_dev." + params["mic_type"] + ".subsegs.json",
     )
+    print("dev_meta_file", dev_meta_file)
     with open(dev_meta_file, "r") as f:
-        meta_dev = json.load(f)
+        full_meta = json.load(f)
 
-    full_meta = meta_dev
+    # sys.exit()
+
+    # full_meta = meta_dev
 
     # Processing starts from here
     # Following few lines selects option for different backend and affinity matrices. Finds best values for hyperameters using dev set.
@@ -610,6 +845,7 @@ if __name__ == "__main__":  # noqa: C901
     )
     with open(eval_meta_file, "r") as f:
         full_meta_eval = json.load(f)
+    print("eval_meta_file", eval_meta_file)
 
     # Tag to be appended to final output DER files. Writing DER for individual files.
     type_of_num_spkr = "oracle" if params["oracle_n_spkrs"] else "est"
