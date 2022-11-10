@@ -157,6 +157,8 @@ def dataio_prep(hparams):
     @sb.utils.data_pipeline.provides("signal")
     def audio_pipeline(wav):
         sig = sb.dataio.dataio.read_audio(wav)
+        if sig.shape[1] > 2:
+            sig = sig[:, 0]
         return sig
 
     # 3. Define text pipeline:
