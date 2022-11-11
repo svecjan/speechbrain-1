@@ -45,13 +45,13 @@ class VADBrain(sb.Brain):
         self.targets = targets
 
         if stage == sb.Stage.TRAIN:
-            wavs, targets, lens = augment_data(
-                self.noise_datasets,
-                self.speech_datasets,
-                wavs,
-                targets,
-                lens_targ,
-            )
+        #    wavs, targets, lens = augment_data(
+        #        self.noise_datasets,
+        #        self.speech_datasets,
+        #        wavs,
+        #        targets,
+        #        lens_targ,
+        #    )
             self.lens = lens
             self.targets = targets
 
@@ -157,7 +157,7 @@ def dataio_prep(hparams):
     @sb.utils.data_pipeline.provides("signal")
     def audio_pipeline(wav):
         sig = sb.dataio.dataio.read_audio(wav)
-        if sig.shape[1] > 2:
+        if len(sig.shape) > 1:
             sig = sig[:, 0]
         return sig
 
