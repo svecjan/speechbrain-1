@@ -6,7 +6,8 @@
 # #################################################
 
 seed: 1234
-__set_seed: !apply:torch.manual_seed [!ref <seed>]
+__set_seed1: !apply:torch.manual_seed [!ref <seed>]
+__set_seed2: !apply:numpy.random.seed [!ref <seed>]
 
 # Directories: Replace !PLACEHOLDER with full path of the directory.
 # Download data from: http://groups.inf.ed.ac.uk/ami/download/
@@ -17,6 +18,10 @@ manual_annot_folder: !PLACEHOLDER # e.g., /path/to/ami_public_manual_1.6.2/
 
 output_folder: results/ami/ecapa
 save_folder: !ref <output_folder>/save
+<<<<<<< Updated upstream
+=======
+device: cpu #'cuda:0'
+>>>>>>> Stashed changes
 
 # Embedding model
 # Here, the pretrained embedding model trained with train_speaker_embeddings.py hparams/train_ecapa_tdnn.yaml

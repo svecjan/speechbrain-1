@@ -39,11 +39,6 @@ from speechbrain.utils.DER import DER
 from speechbrain.dataio.dataio import read_audio
 from speechbrain.dataio.dataio import read_audio_multichannel
 
-import icecream as ic
-import json
-
-np.random.seed(1234)
-
 # Logger setup
 logger = logging.getLogger(__name__)
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -84,7 +79,7 @@ def embedding_computation_loop(split, set_loader, stat_file):
     # Note: We use speechbrain.processing.PLDA_LDA.StatObject_SB type to store embeddings.
     # Extract embeddings (skip if already done).
     if not os.path.isfile(stat_file):
-        logger.debug("Extracting deep embeddings and diarizing")
+        logger.info("Extracting deep embeddings and diarizing")
         embeddings = np.empty(shape=[0, params["emb_dim"]], dtype=np.float64)
         modelset = []
         segset = []
@@ -126,12 +121,12 @@ def embedding_computation_loop(split, set_loader, stat_file):
             stat0=b,
             stat1=embeddings,
         )
-        logger.debug("Saving Embeddings...")
+        logger.info("Saving Embeddings...")
         stat_obj.save_stat_object(stat_file)
 
     else:
-        logger.debug("Skipping embedding extraction (as already present).")
-        logger.debug("Loading previously saved embeddings.")
+        logger.info("Skipping embedding extraction (as already present).")
+        logger.info("Loading previously saved embeddings.")
 
         with open(stat_file, "rb") as in_file:
             stat_obj = pickle.load(in_file)
@@ -191,8 +186,7 @@ def diarize_dataset(full_meta, split_type, n_lambdas, pval, n_neighbors=10):
 
     # Setting eval modality.
     params["embedding_model"].eval()
-    msg = "Diarizing " + split_type + " set"
-    logger.info(msg)
+    logger.info(f"Diarizing {split_type} set")
 
     if len(all_rec_ids) <= 0:
         msg = "No recording IDs found! Please check if meta_data json file is properly generated."
@@ -214,8 +208,7 @@ def diarize_dataset(full_meta, split_type, n_lambdas, pval, n_neighbors=10):
         i = i + 1
 
         # Log message.
-        msg = "Diarizing %s : %s " % (tag, rec_id)
-        logger.debug(msg)
+        logger.info(f"Diarizing {tag} : {rec_id} ")
 
         # Embedding directory.
         if not os.path.exists(os.path.join(params["embedding_dir"], split)):
@@ -306,7 +299,7 @@ def diarize_dataset(full_meta, split_type, n_lambdas, pval, n_neighbors=10):
     # Once all RTTM outputs are generated, concatenate individual RTTM files to obtain single RTTM file.
     # This is not needed but just staying with the standards.
     concate_rttm_file = out_rttm_dir + "/sys_output.rttm"
-    logger.debug("Concatenating individual RTTM files...")
+    logger.info("Concatenating individual RTTM files...")
     with open(concate_rttm_file, "w") as cat_file:
         for f in glob.glob(out_rttm_dir + "/*.rttm"):
             if f == concate_rttm_file:
@@ -314,11 +307,7 @@ def diarize_dataset(full_meta, split_type, n_lambdas, pval, n_neighbors=10):
             with open(f, "r") as indi_rttm_file:
                 shutil.copyfileobj(indi_rttm_file, cat_file)
 
-    msg = "The system generated RTTM file for %s set : %s" % (
-        split_type,
-        concate_rttm_file,
-    )
-    logger.debug(msg)
+    logger.info(f"The system generated RTTM file for {split_type} set : {concate_rttm_file}")
 
     return concate_rttm_file
 
@@ -818,9 +807,7 @@ if __name__ == "__main__":  # noqa: C901
     ):
         # oracle num_spkrs or not, doesn't matter for kmeans and SC backends
         # cos: Tune for the best pval for SC /kmeans (for unknown num of spkrs)
-        logger.info(
-            "Tuning for p-value for SC (Multiple iterations over AMI Dev set)"
-        )
+        logger.info("Tuning for p-value for SC (Multiple iterations over AMI Dev set)")
         best_pval = dev_pval_tuner(full_meta, "dev")
 
     elif params["backend"] == "AHC":
@@ -831,9 +818,7 @@ if __name__ == "__main__":  # noqa: C901
         # NN for unknown num of speakers (can be used in future)
         if params["oracle_n_spkrs"] is False:
             # nn: Tune num of number of components (to be updated later)
-            logger.info(
-                "Tuning for number of eigen components for NN (Multiple iterations over AMI Dev set)"
-            )
+            logger.info("Tuning for number of eigen components for NN (Multiple iterations over AMI Dev set)")
             # dev_tuner used for tuning num of components in NN. Can be used in future.
             n_lambdas = dev_tuner(full_meta, "dev")
 
@@ -866,8 +851,7 @@ if __name__ == "__main__":  # noqa: C901
             full_meta = full_meta_eval
 
         # Performing diarization.
-        msg = "Diarizing using best hyperparams: " + split_type + " set"
-        logger.info(msg)
+        logger.info(f"Diarizing using best hyperparams: {split_type} set")
         out_boundaries = diarize_dataset(
             full_meta,
             split_type,
@@ -877,8 +861,7 @@ if __name__ == "__main__":  # noqa: C901
         )
 
         # Computing DER.
-        msg = "Computing DERs for " + split_type + " set"
-        logger.info(msg)
+        logger.info(f"Computing DERs for {split_type} set")
         ref_rttm = os.path.join(
             params["ref_rttm_dir"], "fullref_ami_" + split_type + ".rttm"
         )
@@ -894,21 +877,13 @@ if __name__ == "__main__":  # noqa: C901
         # Writing DER values to a file. Append tag.
         der_file_name = split_type + "_DER_" + tag
         out_der_file = os.path.join(params["der_dir"], der_file_name)
-        msg = "Writing DER file to: " + out_der_file
-        logger.info(msg)
+        logger.info(f"Writing DER file to: {out_der_file}")
         diar.write_ders_file(ref_rttm, DER_vals, out_der_file)
 
-        msg = (
-            "AMI "
-            + split_type
-            + " set DER = %s %%\n" % (str(round(DER_vals[-1], 2)))
-        )
-        logger.info(msg)
+        logger.info(f"AMI {split_type} set DER = {DER_vals[-1]:.2f} %")
         final_DERs[split_type] = round(DER_vals[-1], 2)
 
     # Final print DERs
-    msg = (
-        "Final Diarization Error Rate (%%) on AMI corpus: Dev = %s %% | Eval = %s %%\n"
-        % (str(final_DERs["dev"]), str(final_DERs["eval"]))
-    )
-    logger.info(msg)
+    dev_value = final_DERs["dev"]
+    eval_value = final_DERs["eval"]
+    logger.info(f"Final Diarization Error Rate (%%) on AMI corpus: Dev = {dev_value} % | Eval = {eval_value} %")
