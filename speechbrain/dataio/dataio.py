@@ -21,7 +21,9 @@ import time
 import torchaudio
 import json
 import re
+
 from speechbrain.utils.torch_audio_backend import check_torchaudio_backend
+from typing import Union, List, Tuple
 
 check_torchaudio_backend()
 logger = logging.getLogger(__name__)
@@ -376,7 +378,7 @@ def load_pickle(pickle_path):
     return out
 
 
-def to_floatTensor(x: (list, tuple, np.ndarray)):
+def to_floatTensor(x: Union[List[float], Tuple[float], np.ndarray]):
     """
     Arguments
     ---------
@@ -396,7 +398,7 @@ def to_floatTensor(x: (list, tuple, np.ndarray)):
         return torch.tensor(x, dtype=torch.float)
 
 
-def to_doubleTensor(x: (list, tuple, np.ndarray)):
+def to_doubleTensor(x: Union[List[float], Tuple[float], np.ndarray]):
     """
     Arguments
     ---------
@@ -416,7 +418,7 @@ def to_doubleTensor(x: (list, tuple, np.ndarray)):
         return torch.tensor(x, dtype=torch.double)
 
 
-def to_longTensor(x: (list, tuple, np.ndarray)):
+def to_longTensor(x: Union[List[float], Tuple[float], np.ndarray]):
     """
     Arguments
     ---------
@@ -783,13 +785,7 @@ def read_kaldi_lab(kaldi_ali, kaldi_lab_opts):
     lab = {
         k: v
         for k, v in kaldi_io.read_vec_int_ark(
-            "gunzip -c "
-            + kaldi_ali
-            + "/ali*.gz | "
-            + kaldi_lab_opts
-            + " "
-            + kaldi_ali
-            + "/final.mdl ark:- ark:-|"
+            f"gunzip -c {kaldi_ali}/ali*.gz | {kaldi_lab_opts} {kaldi_ali}/final.mdl ark:- ark:-|"
         )
     }
     return lab
@@ -1077,3 +1073,115 @@ def split_word(sequences, space="_"):
         chars = list(space.join(seq))
         results.append(chars)
     return results
+
+
+def load_htk(scp_htk_file: str, mlf_htk_file: str, output_json=None):
+    """ Load
+    """
+
+    json_obj = {}
+    filenames = set()
+    with open(scp_htk_file) as f:
+        for line in f:
+            key, value = line.strip().split("=")
+            key = ".".join(key.split(".")[:-1])
+            filename, _tmp = value.split("[")
+            start, stop = _tmp.replace("]", "").split(",")
+            start, stop = 80 * int(start), 80 * int(stop)
+            json_obj[key] = {
+                "wav": {"filename": filename, "start": start, "stop": stop}
+            }
+            filenames.add(filename)
+
+    with open("filename2int.txt", "w") as f:
+        for k in filenames:
+            _tmp = torchaudio.info(k)
+            print(f"{k} {_tmp.num_frames*_tmp.sample_rate}", file=f)
+
+    with open(mlf_htk_file) as f_in:
+        mlf_iter_obj = iter(f_in)
+
+        # Header
+        line = next(mlf_iter_obj).strip()
+        if not line == "#!MLF!#":
+            raise ValueError("Non proper header")
+
+        # First utt-label
+        line = next(mlf_iter_obj).strip()
+        if line.startswith('"'):
+            seg_label = line.replace('"', "").removesuffix(".rec")
+            # print(seg_label, file=f_out)
+        else:
+            raise ValueError("Bad Utt-label")
+
+        # First line segment
+        line = next(mlf_iter_obj).strip()
+        split_line = line.split()
+        if not split_line[6] == "<s>":
+            raise ValueError("Segment should start with start symbol '<s>'")
+        act_label = "sil"
+        start = "0"
+        stop = split_line[1]
+
+        segments = []
+        while True:
+            try:
+                line = next(mlf_iter_obj).strip()
+            except StopIteration:
+                break
+
+            if line.startswith('"'):  # start new segment
+                seg_label = line.replace('"', "").removesuffix(".rec")
+                # print(seg_label, file=f_out)
+                line = next(mlf_iter_obj).strip()
+                split_line = line.split()
+                if not split_line[6] == "<s>":
+                    raise ValueError(
+                        "Segment should start with start symbol '<s>'"
+                    )
+                act_label = "sil"
+                start = "0"
+                stop = split_line[1]
+                continue
+            elif line.startswith("."):  # end segment
+                # print(f"{start} {stop} {act_label}", file=f_out)
+                # print(".", file=f_out)
+                json_obj[seg_label]["speech"] = segments
+                segments = []
+                continue
+            else:  # body of segment
+                split_line = line.split()
+                if len(split_line) == 4:  # body
+                    stop = split_line[1]
+                    continue
+                else:
+                    if split_line[4] == "sil" and act_label == "speech":
+                        # print(f"{start} {stop} {act_label}", file=f_out)
+                        segments.append(
+                            [float(start) / 10000000, float(stop) / 10000000]
+                        )
+                        start, stop, act_label = (
+                            split_line[0],
+                            split_line[1],
+                            "sil",
+                        )
+                        continue
+                    elif split_line[4] != "sil" and act_label == "speech":
+                        stop = split_line[1]
+                        continue
+                    elif split_line[4] != "sil" and act_label != "speech":
+                        # print(f"{start} {stop} {act_label}", file=f_out)
+                        start, stop, act_label = (
+                            split_line[0],
+                            split_line[1],
+                            "speech",
+                        )
+                        continue
+                    elif split_line[4] == "sil" and act_label == "sil":
+                        stop = split_line[1]
+                        continue
+                    else:
+                        raise ("Unsuspected combination of labels")
+
+    with open(output_json, "w", encoding="utf-8") as f:
+        json.dump(json_obj, f, ensure_ascii=False, indent=4)
