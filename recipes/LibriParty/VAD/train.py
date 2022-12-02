@@ -44,16 +44,18 @@ class VADBrain(sb.Brain):
         targets, lens_targ = batch.target
         self.targets = targets
 
-        if stage == sb.Stage.TRAIN:
-            wavs, targets, lens = augment_data(
-                self.noise_datasets,
-                self.speech_datasets,
-                wavs,
-                targets,
-                lens_targ,
-            )
-            self.lens = lens
-            self.targets = targets
+        # print("wavs targets", wavs.shape, targets.shape)
+
+        # if stage == sb.Stage.TRAIN:
+        #     wavs, targets, lens = augment_data(
+        #         self.noise_datasets,
+        #         self.speech_datasets,
+        #         wavs,
+        #         targets,
+        #         lens_targ,
+        #     )
+        #     self.lens = lens
+        #     self.targets = targets
 
         # From wav input to output binary prediciton
         feats = self.hparams.compute_features(wavs)
@@ -69,6 +71,7 @@ class VADBrain(sb.Brain):
 
         outputs, h = self.modules.rnn(outputs)
         outputs = self.modules.dnn(outputs)
+        # print("outputs", outputs.shape)
         return outputs, lens
 
     def compute_objectives(self, predictions, batch, stage):
@@ -119,9 +122,11 @@ class VADBrain(sb.Brain):
                 stats_meta={"epoch": epoch, "lr": old_lr},
                 train_stats={"loss": self.train_loss},
                 valid_stats={"loss": stage_loss, "summary": summary},
+                # valid_stats={"loss": stage_loss,}
             )
             self.checkpointer.save_and_keep_only(
                 meta={"loss": stage_loss, "summary": summary},
+                # meta={"loss": stage_loss,},
                 num_to_keep=1,
                 min_keys=["loss"],
                 name="epoch_{}".format(epoch),
@@ -152,6 +157,17 @@ def dataio_prep(hparams):
         replacements={"data_root": data_folder},
     )
 
+    train = train.filtered_sorted(
+        sort_key="duration",
+        # key_min_value={"duration": 5},
+        key_max_value={"duration": hparams["avoid_if_longer_than"]},
+    )
+    # when sorting do not shuffle in dataloader ! otherwise is pointless
+    hparams["train_dataloader_opts"]["shuffle"] = False
+
+    validation = validation.filtered_sorted(sort_key="duration")
+    test = test.filtered_sorted(sort_key="duration")
+
     # 2. Define audio pipeline:
     @sb.utils.data_pipeline.takes("wav")
     @sb.utils.data_pipeline.provides("signal")
@@ -160,9 +176,9 @@ def dataio_prep(hparams):
         return sig
 
     # 3. Define text pipeline:
-    @sb.utils.data_pipeline.takes("speech")
+    @sb.utils.data_pipeline.takes("speech", "duration")
     @sb.utils.data_pipeline.provides("target")
-    def vad_targets(speech, hparams=hparams):
+    def vad_targets(speech, duration, hparams=hparams):
         boundaries = (
             [
                 (
@@ -174,10 +190,17 @@ def dataio_prep(hparams):
             if len(speech) > 0
             else []
         )
+        # gt = torch.zeros(
+        #     int(
+        #         np.ceil(
+        #             hparams["example_length"] * (1 / hparams["time_resolution"])
+        #         )
+        #     )
+        # )
         gt = torch.zeros(
             int(
                 np.ceil(
-                    hparams["example_length"] * (1 / hparams["time_resolution"])
+                    duration * (1 / hparams["time_resolution"])
                 )
             )
         )
@@ -219,44 +242,46 @@ if __name__ == "__main__":
         overrides=overrides,
     )
 
-    from libriparty_prepare import prepare_libriparty
+    # from libriparty_prepare import prepare_libriparty
 
-    # LibriParty preparation
-    run_on_main(
-        prepare_libriparty,
-        kwargs={
-            "data_folder": hparams["data_folder"],
-            "save_json_folder": hparams["save_folder"],
-            "sample_rate": hparams["sample_rate"],
-            "window_size": hparams["example_length"],
-            "skip_prep": hparams["skip_prep"],
-        },
-    )
+    # # LibriParty preparation
+    # run_on_main(
+    #     prepare_libriparty,
+    #     kwargs={
+    #         "data_folder": hparams["data_folder"],
+    #         "save_json_folder": hparams["save_folder"],
+    #         "sample_rate": hparams["sample_rate"],
+    #         "window_size": hparams["example_length"],
+    #         "skip_prep": hparams["skip_prep"],
+    #     },
+    # )
 
-    # Prepare Musan
-    from musan_prepare import prepare_musan
+    # # Prepare Musan
+    # from musan_prepare import prepare_musan
 
-    run_on_main(
-        prepare_musan,
-        kwargs={
-            "folder": hparams["musan_folder"],
-            "music_csv": hparams["music_csv"],
-            "noise_csv": hparams["noise_csv"],
-            "speech_csv": hparams["speech_csv"],
-            "max_noise_len": hparams["example_length"],
-        },
-    )
+    # run_on_main(
+    #     prepare_musan,
+    #     kwargs={
+    #         "folder": hparams["musan_folder"],
+    #         "music_csv": hparams["music_csv"],
+    #         "noise_csv": hparams["noise_csv"],
+    #         "speech_csv": hparams["speech_csv"],
+    #         "max_noise_len": hparams["example_length"],
+    #     },
+    # )
 
     # Prepare common
-    from commonlanguage_prepare import prepare_commonlanguage
+    # from commonlanguage_prepare import prepare_commonlanguage
 
-    run_on_main(
-        prepare_commonlanguage,
-        kwargs={
-            "folder": hparams["commonlanguage_folder"],
-            "csv_file": hparams["multilang_speech_csv"],
-        },
-    )
+    # run_on_main(
+    #     prepare_commonlanguage,
+    #     kwargs={
+    #         "folder": hparams["commonlanguage_folder"],
+    #         "csv_file": hparams["multilang_speech_csv"],
+    #     },
+    # )
+
+    # sys.exit(0)
 
     # Dataset IO prep: creating Dataset objects
     train_data, valid_data, test_data = dataio_prep(hparams)

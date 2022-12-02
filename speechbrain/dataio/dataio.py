@@ -1075,12 +1075,13 @@ def split_word(sequences, space="_"):
     return results
 
 
-def load_htk(scp_htk_file: str, mlf_htk_file: str, output_json=None):
+def load_htk(scp_htk_file: str, mlf_htk_file: str, train_json = None, dev_json = None, test_json = None):
     """ Load
     """
+    from collections import defaultdict
 
     json_obj = {}
-    filenames = set()
+    file2dur = defaultdict(float)
     with open(scp_htk_file) as f:
         for line in f:
             key, value = line.strip().split("=")
@@ -1089,14 +1090,21 @@ def load_htk(scp_htk_file: str, mlf_htk_file: str, output_json=None):
             start, stop = _tmp.replace("]", "").split(",")
             start, stop = 80 * int(start), 80 * int(stop)
             json_obj[key] = {
-                "wav": {"filename": filename, "start": start, "stop": stop}
+                "wav": {"file": filename, "start": start, "stop": stop},
+                "duration": (stop - start) / 8000.0
             }
-            filenames.add(filename)
+            file2dur[filename] += (stop - start) / 8000.0
 
-    with open("filename2int.txt", "w") as f:
-        for k in filenames:
-            _tmp = torchaudio.info(k)
-            print(f"{k} {_tmp.num_frames*_tmp.sample_rate}", file=f)
+    file2dur_sorted = sorted(file2dur.items(), key=lambda x: x[1])
+    with open("file2dur.txt", "w") as f:
+        for k, v in file2dur_sorted:
+            print(k, v, file=f)
+
+    dev_dur = 0.0
+    test_dur = 0.0
+    train_obj = {}
+    dev_obj = {}
+    test_obj = {}
 
     with open(mlf_htk_file) as f_in:
         mlf_iter_obj = iter(f_in)
@@ -1124,11 +1132,16 @@ def load_htk(scp_htk_file: str, mlf_htk_file: str, output_json=None):
         stop = split_line[1]
 
         segments = []
+        i = 0
         while True:
             try:
                 line = next(mlf_iter_obj).strip()
             except StopIteration:
                 break
+
+            if i % 1000000 == 0:
+                print(f"Processed: [{i}/138002308]")
+            i+=1
 
             if line.startswith('"'):  # start new segment
                 seg_label = line.replace('"', "").removesuffix(".rec")
@@ -1144,9 +1157,21 @@ def load_htk(scp_htk_file: str, mlf_htk_file: str, output_json=None):
                 stop = split_line[1]
                 continue
             elif line.startswith("."):  # end segment
-                # print(f"{start} {stop} {act_label}", file=f_out)
-                # print(".", file=f_out)
                 json_obj[seg_label]["speech"] = segments
+                # if json_obj[seg_label]["wav"]["filename"] in dev_set:
+                #     dev_obj[seg_label] = json_obj[seg_label]
+                # elif json_obj[seg_label]["wav"]["filename"] in test_set:
+                #     test_obj[seg_label] = json_obj[seg_label]
+                # else:
+                #     train_obj[seg_label] = json_obj[seg_label]
+                if dev_dur < 36000:
+                    dev_obj[seg_label] = json_obj[seg_label]
+                    dev_dur += (json_obj[seg_label]["wav"]["stop"] - json_obj[seg_label]["wav"]["start"])/8000
+                elif test_dur < 36000:
+                    test_obj[seg_label] = json_obj[seg_label]
+                    test_dur += (json_obj[seg_label]["wav"]["stop"] - json_obj[seg_label]["wav"]["start"])/8000
+                else:
+                    train_obj[seg_label] = json_obj[seg_label]
                 segments = []
                 continue
             else:  # body of segment
@@ -1183,5 +1208,24 @@ def load_htk(scp_htk_file: str, mlf_htk_file: str, output_json=None):
                     else:
                         raise ("Unsuspected combination of labels")
 
-    with open(output_json, "w", encoding="utf-8") as f:
-        json.dump(json_obj, f, ensure_ascii=False, indent=4)
+
+    with open(train_json, "w", encoding="utf-8") as f_train, \
+         open(dev_json, "w", encoding="utf-8") as f_dev, \
+         open(test_json, "w", encoding="utf-8") as f_test:
+    #     train_obj = {}
+    #     dev_obj = {}
+    #     test_obj = {}
+    #     for k in json_obj:
+    #         v = json_obj[k]["wav"]["filename"]
+    #         if v in dev_set:
+    #             dev_obj[k] = json_obj[k]
+    #         elif v in test_set:
+    #             test_obj[k] = json_obj[k]
+    #         else:
+    #             train_obj[k] = json_obj[k]
+
+    #     # with open(output_json, "w", encoding="utf-8") as f:
+        json.dump(train_obj, f_train, ensure_ascii=False, indent=4)
+        json.dump(dev_obj, f_dev, ensure_ascii=False, indent=4)
+        json.dump(test_obj, f_test, ensure_ascii=False, indent=4)
+
