@@ -552,7 +552,7 @@ class EncoderDecoderASR(Pretrained):
         super().__init__(*args, **kwargs)
         self.tokenizer = self.hparams.tokenizer
 
-    def transcribe_file(self, path):
+    def transcribe_file(self, path, nbest=1, ret_scores=False):
         """Transcribes the given audiofile into a sequence of words.
 
         Arguments
@@ -565,14 +565,20 @@ class EncoderDecoderASR(Pretrained):
         str
             The audiofile transcription produced by this ASR system.
         """
+        self.mods.decoder.topk = nbest
+
         waveform = self.load_audio(path)
         # Fake a batch:
         batch = waveform.unsqueeze(0)
         rel_length = torch.tensor([1.0])
-        predicted_words, predicted_tokens = self.transcribe_batch(
+        predicted_words, predicted_tokens, scores = self.transcribe_batch(
             batch, rel_length
         )
-        return predicted_words[0]
+
+        if ret_scores:
+            return predicted_words[0], torch.exp(scores[0])
+        else:
+            return predicted_words[0]
 
     def encode_batch(self, wavs, wav_lens):
         """Encodes the input audio into a sequence of hidden states
@@ -637,7 +643,7 @@ class EncoderDecoderASR(Pretrained):
                 self.tokenizer.decode_ids(token_seq)
                 for token_seq in predicted_tokens
             ]
-        return predicted_words, predicted_tokens
+        return predicted_words, predicted_tokens, scores
 
     def forward(self, wavs, wav_lens):
         """Runs full transcription - note: no gradients through decoding"""

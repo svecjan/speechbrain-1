@@ -823,10 +823,9 @@ class S2SBeamSearcher(S2SBaseSearcher):
             topk_lengths,
             log_probs,
         ) = self._get_top_score_prediction(hyps_and_scores, topk=self.topk,)
-        # pick the best hyp
-        predictions = topk_hyps[:, 0, :]
+        # pick the n-best hyp
         predictions = batch_filter_seq2seq_output(
-            predictions, eos_id=self.eos_index
+            topk_hyps, eos_id=self.eos_index
         )
 
         if self.return_log_probs:
@@ -1330,15 +1329,17 @@ def batch_filter_seq2seq_output(prediction, eos_id=-1):
 
     Example
     -------
-    >>> predictions = [torch.IntTensor([1,2,3,4]), torch.IntTensor([2,3,4,5,6])]
+    >>> predictions = [[torch.IntTensor([1,2,3,4]), torch.IntTensor([2,3,4,5,6])]]
     >>> predictions = batch_filter_seq2seq_output(predictions, eos_id=4)
     >>> predictions
-    [[1, 2, 3], [2, 3]]
+    [[[1, 2, 3], [2, 3]]]
     """
     outputs = []
-    for p in prediction:
-        res = filter_seq2seq_output(p.tolist(), eos_id=eos_id)
-        outputs.append(res)
+    for i, kbest in enumerate(prediction):
+        outputs.append([])
+        for k in kbest:
+            res = filter_seq2seq_output(k.tolist(), eos_id=eos_id)
+            outputs[i].append(res)
     return outputs
 
 
