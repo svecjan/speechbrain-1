@@ -828,6 +828,7 @@ class Brain:
 
         # Prepare iterating variables
         self.avg_train_loss = 0.0
+        self.avg_grad_norm = 0.0
         self.step = 0
         self.optimizer_step = 0
 
@@ -850,13 +851,17 @@ class Brain:
                 self.hparams.output_folder,
             )
 
-    def print_trainable_parameters(self):
+    def print_trainable_parameters(self, per_component=False):
         """Prints the number of trainable parameters in the model."""
         total_trainable_params = 0
         total_parameters = 0
-        for parameter in self.modules.parameters():
+        for name, parameter in self.modules.named_parameters():
             total_parameters += parameter.numel()
             if parameter.requires_grad:
+                if per_component:
+                    logger.info(
+                        f"Trainable parameters {name}: {parameter.numel()}"
+                    )
                 total_trainable_params += parameter.numel()
         class_name = self.__class__.__name__
         if total_parameters == 0:
@@ -896,6 +901,20 @@ class Brain:
                 f"* Total Number of Parameters: {formatted_total_params}\n"
                 f"* Trainable Parameters represent {percentage_trainable:.4f}% of the total size."
             )
+
+    def compute_grad_norm(self):
+        """Compute grad normalization in actual model."""
+        parameters = [
+            p for _, module in self.modules.items() for p in module.parameters()
+        ]
+
+        grads = [
+            p.grad.detach().flatten()
+            for p in parameters
+            if p.grad is not None and p.requires_grad
+        ]
+
+        return torch.cat(grads).norm()
 
     def compute_forward(self, batch, stage):
         """Forward pass, to be overridden by sub-classes.
@@ -1238,6 +1257,9 @@ class Brain:
             scaled_loss.backward()
 
         if should_step:
+            self.avg_grad_norm = self.update_average(
+                self.compute_grad_norm(), self.avg_grad_norm
+            )
             self.optimizers_step()
 
         self.on_fit_batch_end(batch, outputs, loss, should_step)
@@ -1438,7 +1460,9 @@ class Brain:
                 self.avg_train_loss = self.update_average(
                     loss, self.avg_train_loss
                 )
-                t.set_postfix(train_loss=self.avg_train_loss)
+                t.set_postfix(
+                    train_loss=self.avg_train_loss, grad_norm=self.avg_grad_norm
+                )
 
                 if self.profiler is not None:
                     self.profiler.step()
@@ -1861,6 +1885,7 @@ class Brain:
         save_dict = {
             "step": self.step,
             "avg_train_loss": self.avg_train_loss,
+            "avg_grad_norm": self.avg_grad_norm,
             "optimizer_step": self.optimizer_step,
         }
         with open(path, "w") as w:
@@ -1873,6 +1898,7 @@ class Brain:
             save_dict = yaml.safe_load(f)
         self.step = save_dict["step"]
         self.avg_train_loss = save_dict["avg_train_loss"]
+        self.avg_grad_norm = save_dict["total_grad_norm"]
         # Ensure compatibility with checkpoints from before optimizer_step:
         if "optimizer_step" not in save_dict:
             clsname = self.__class__.__name__

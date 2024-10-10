@@ -167,7 +167,11 @@ class ASR(sb.Brain):
             "model_optimizer": self.model_optimizer,
         }
         if not self.hparams.freeze_bestrq:
+            logger.info("BEST-RQ optimizer is not frozen")
             self.optimizers_dict["bestrq_optimizer"] = self.bestrq_optimizer
+        else:
+            logger.info("BEST-RQ optimizer is frozen")
+            self.modules.pt_model.requires_grad_(False)
 
         if self.checkpointer is not None:
             self.checkpointer.add_recoverable(

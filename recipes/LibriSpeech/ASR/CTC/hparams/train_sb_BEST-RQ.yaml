@@ -72,7 +72,7 @@ encoder_module: conformer
 dnn_activation: !new:torch.nn.LeakyReLU
 dnn_neurons: 1280
 dnn_dropout: 0.15
-freeze_bestrq: False
+freeze_bestrq: True
 
 # Outputs
 output_neurons_ctc: 29  # BPE size, index(blank/eos/bos) = 0

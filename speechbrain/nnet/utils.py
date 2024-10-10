@@ -5,8 +5,10 @@ Authors
  * Artem Ploujnikov 2023
 """
 
+import torch
 from torch import nn
 
+from speechbrain.nnet.linear import Linear
 from speechbrain.dataio.dataio import length_to_mask
 
 
@@ -90,3 +92,20 @@ class DoneDetector(nn.Module):
             out = out * mask.unsqueeze(-1)
         out = self.out(out)
         return out
+
+
+class Classifier(nn.Module):
+    def __init__(self, input_size, n_neurons, nhead=1):
+        super().__init__()
+
+        self.classifiers = nn.ModuleList(
+            Linear(input_size=input_size, n_neurons=n_neurons)
+            for _ in range(nhead)
+        )
+
+    def forward(self, x):
+        logits = torch.stack(
+            [classifier(x) for classifier in self.classifiers], dim=1
+        )
+
+        return logits

@@ -46,13 +46,22 @@ test_dataloader_options:
     batch_size: 8 # DynamicBatching not used at testing time
     num_workers: 4
 
+# Optimizer & scheduler parameters
 lr: 0.0008
+warmup_steps: 25000
+weight_decay: 0.01
 
 # Mel-Filterbank parameters
 sample_rate: 16000
 n_fft: 400
 n_mels: 80
 hop_length: 10
+
+# Normalization
+norm_type: sentence
+update_until_epoch: 3
+mean_norm: True
+std_norm: True
 
 # BEST RQ quantiser has a special downsampling mechanism.
 # convolutions reduction dim by 4 in the time domain
@@ -70,6 +79,8 @@ transformer_dropout: 0.1
 activation: !name:torch.nn.GELU
 output_neurons: 5000
 encoder_layerdrop: 0.05
+encoder_module: conformer # 'transformer', 'conformer', 'branchformer'
+attention_type: RelPosMHAXL # 'regularMHA', 'RelPosMHAXL', 'hypermixing'
 
 # Masking parameters
 mask_length: 4
@@ -78,10 +89,10 @@ noise_mean: 0
 noise_std: 0.1
 
 # quantizer (codebook = cb) parameters
+n_cb: 1
 p_input: 320
 cb_dim: 16
 cb_vocab: 8192
-
 
 ############################## Models ################################
 
@@ -105,8 +116,9 @@ Transformer: !new:speechbrain.lobes.models.transformer.TransformerASR.Transforme
     dropout: !ref <transformer_dropout>
     activation: !ref <activation>
     conformer_activation: !ref <activation>
-    encoder_module: conformer
-    attention_type: RelPosMHAXL
+    branchformer_activation: !ref <activation>
+    encoder_module: !ref <encoder_module>
+    attention_type: !ref <attention_type>
     normalize_before: True
     causal: False
     layerdrop_prob: !ref <encoder_layerdrop>
@@ -116,11 +128,13 @@ wrapper: !new:speechbrain.lobes.models.transformer.TransformerASR.EncoderWrapper
     transformer: !ref <Transformer>
 
 Quantizer: !new:speechbrain.nnet.quantisers.RandomProjectionQuantizer
+    n_cb: !ref <n_cb>
     input_dim: !ref <p_input>
     cb_dim: !ref <cb_dim>
     cb_vocab: !ref <cb_vocab>
 
-linear: !new:speechbrain.nnet.linear.Linear
+classifier: !new:speechbrain.nnet.utils.Classifier
+    nhead: !ref <n_cb>
     input_size: !ref <d_model>
     n_neurons: !ref <cb_vocab>
 
@@ -129,7 +143,7 @@ modules:
     wrapper: !ref <wrapper>
     Quantizer: !ref <Quantizer>
     normalize: !ref <normalize>
-    linear: !ref <linear>
+    classifier: !ref <classifier>
 
 model: !new:torch.nn.ModuleList
     - [!ref <CNN>, !ref <wrapper>]
@@ -138,7 +152,7 @@ optimizer: !name:torch.optim.AdamW
     lr: !ref <lr>
     betas: (0.9, 0.98)
     eps: 0.000000001
-    weight_decay: 0.01
+    weight_decay: !ref <weight_decay>
 
 compute_features: !new:speechbrain.lobes.features.Fbank
     sample_rate: !ref <sample_rate>
@@ -146,13 +160,15 @@ compute_features: !new:speechbrain.lobes.features.Fbank
     n_mels: !ref <n_mels>
 
 normalize: !new:speechbrain.processing.features.InputNormalization
-    norm_type: sentence
+    norm_type: !ref <norm_type>
+    update_until_epoch: !ref <update_until_epoch>
+    mean_norm: !ref <mean_norm>
+    std_norm: !ref <std_norm>
 
 ############################## running ################################
 
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
     limit: !ref <number_of_epochs>
-
 
 train_steps_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_steps_log>
@@ -162,7 +178,7 @@ train_stage_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
 
 noam_annealing: !new:speechbrain.nnet.schedulers.NoamScheduler
     lr_initial: !ref <lr>
-    n_warmup_steps: 25000
+    n_warmup_steps: !ref <warmup_steps>
 
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
     checkpoints_dir: !ref <save_folder>
@@ -172,4 +188,4 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
         normalizer: !ref <normalize>
         counter: !ref <epoch_counter>
         quantizer: !ref <Quantizer>
-        linear: !ref <linear>
+        classifier: !ref <classifier>

@@ -75,15 +75,15 @@ class BestRQBrain(sb.core.Brain):
         enc_out = self.modules.wrapper(src, wav_lens)  # only use encoder
 
         ##### linear
-        logits = self.modules.linear(enc_out)
+        logits = self.modules.classifier(enc_out)
 
         ##### get masked region for loss computation only over these.
         mask_idx = mask[::divis_by] // divis_by
-        logits = logits[:, mask_idx, :]
-        targets = targets[:, mask_idx]
+        logits = logits[:, :, mask_idx, :]
+        targets = targets[:, :, mask_idx]
 
-        B, T, C = logits.shape
-        return logits.view(B * T, C), targets.view(B * T)
+        B, CB, T, C = logits.shape
+        return logits.view(B * CB * T, C), targets.view(B * CB * T)
 
     def compute_objectives(self, predictions, batch, stage):
         pred, targets = predictions
@@ -119,10 +119,10 @@ class BestRQBrain(sb.core.Brain):
             log_dct["steps"] = self.optimizer_step
             log_dct["lr"] = current_lr
             log_dct["avg_loss"] = self.avg_train_loss
+            log_dct["avg_grad_norm"] = self.avg_grad_norm
 
             if hasattr(self, "time_last_log"):
-                run_time_since_last_log = time.time() - self.time_last_log
-                log_dct["run_time"] = run_time_since_last_log
+                log_dct["run_time"] = time.time() - self.time_last_log
             self.time_last_log = time.time()
 
             if sb.utils.distributed.if_main_process():
