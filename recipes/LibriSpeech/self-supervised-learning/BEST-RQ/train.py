@@ -153,6 +153,7 @@ class BestRQBrain(sb.core.Brain):
                     "epoch": epoch,
                     "steps": self.optimizer_step,
                     "lr": self.optimizer.param_groups[0]["lr"],
+                    "grad norm": self.avg_grad_norm,
                 },
                 train_stats=self.train_stats,
                 valid_stats=stage_stats,

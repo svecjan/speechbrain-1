@@ -1898,7 +1898,7 @@ class Brain:
             save_dict = yaml.safe_load(f)
         self.step = save_dict["step"]
         self.avg_train_loss = save_dict["avg_train_loss"]
-        self.avg_grad_norm = save_dict["total_grad_norm"]
+        self.avg_grad_norm = save_dict["avg_grad_norm"]
         # Ensure compatibility with checkpoints from before optimizer_step:
         if "optimizer_step" not in save_dict:
             clsname = self.__class__.__name__

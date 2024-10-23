@@ -60,8 +60,6 @@ hop_length: 10
 # Normalization
 norm_type: sentence
 update_until_epoch: 3
-mean_norm: True
-std_norm: True
 
 # BEST RQ quantiser has a special downsampling mechanism.
 # convolutions reduction dim by 4 in the time domain
@@ -162,8 +160,6 @@ compute_features: !new:speechbrain.lobes.features.Fbank
 normalize: !new:speechbrain.processing.features.InputNormalization
     norm_type: !ref <norm_type>
     update_until_epoch: !ref <update_until_epoch>
-    mean_norm: !ref <mean_norm>
-    std_norm: !ref <std_norm>
 
 ############################## running ################################
 
